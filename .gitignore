@@ -1,0 +1,4 @@
+/.idea
+.env
+deploy-config.env
+five-pillars.db

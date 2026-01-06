@@ -1,0 +1,6 @@
+.env
+/bin
+.idea/
+.gitignore
+.git/
+deploy-config.env
