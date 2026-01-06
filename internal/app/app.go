@@ -120,8 +120,8 @@ func (a *Application) setupCronJobs() {
 		a.services.Notification.SendDailySummary()
 	})
 
-	// Создание задач на следующий день в 06:00 UTC+3
-	a.cron.AddFunc("0 3 * * *", func() {
+	// Создание задач на следующий день в 22:00 UTC+3
+	a.cron.AddFunc("0 19 * * *", func() {
 		tomorrow := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
 		if err := a.services.Task.CreateDefaultTasks(tomorrow); err != nil {
 			log.Printf("⚠️ Ошибка создания задач: %v", err)
