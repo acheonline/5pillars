@@ -1,8 +1,10 @@
 package services
 
 import (
+	"five-pillars/internal/utils"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"five-pillars/internal/database"
@@ -114,4 +116,38 @@ func (ns *NotificationService) SendDailySummary() {
 	)
 
 	ns.sender.SendMessage(message)
+}
+
+// SendAllTodayTaskNotification отправляет текущий статус по задачам
+func (ns *NotificationService) SendAllTodayTaskNotification() {
+	today := time.Now().UTC().Format("2006-01-02")
+	tasks, err := ns.repository.GetTasksByDate(today)
+	if err != nil {
+		log.Printf("⚠️ Ошибка получения сводки дня: %v", err)
+		return
+	}
+
+	var message strings.Builder
+	message.WriteString(fmt.Sprintf("📅 <b>!НАПОМИНАНИЕ-СВОДКА на %s</b>\n\n", utils.GetCurrentMSKDate()))
+	message.WriteString(utils.GetTimezoneInfo() + "\n\n")
+
+	for _, task := range tasks {
+		emoji := utils.GetPillarEmoji(string(task.Pillar))
+		pillarName := utils.GetPillarName(string(task.Pillar))
+
+		// Форматируем время для отображения
+		timeDisplay := utils.FormatTaskTime(task.TimeUTC, task.Completed)
+
+		message.WriteString(fmt.Sprintf(
+			"%s <b>%s</b> - %s\n%s\n\n",
+			emoji,
+			pillarName,
+			task.Description,
+			timeDisplay,
+		))
+	}
+	err = ns.sender.SendMessage(message.String())
+	if err != nil {
+		log.Printf("X Ошибка отправки уведомления: %v", err)
+	}
 }

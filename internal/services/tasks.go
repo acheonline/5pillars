@@ -49,7 +49,7 @@ func (ts *TaskService) CreateDefaultTasks(date string) error {
 			Pillar:      database.Body,
 			Description: desc,
 			Completed:   false,
-			TimeUTC:     "15:00",
+			TimeUTC:     "18:00",
 			Date:        date,
 			Notes:       "Ритм 2+1 - инвестиция в энергию",
 		})
@@ -69,7 +69,7 @@ func (ts *TaskService) CreateDefaultTasks(date string) error {
 			Pillar:      database.Focus,
 			Description: "Вечерний урок",
 			Completed:   false,
-			TimeUTC:     "16:00",
+			TimeUTC:     "18:00",
 			Date:        date,
 			Notes:       "вечерний урок 15 мин",
 		})

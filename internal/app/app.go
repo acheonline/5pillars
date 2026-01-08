@@ -111,9 +111,20 @@ func (a *Application) Stop() error {
 
 func (a *Application) setupCronJobs() {
 	// Проверка уведомлений каждую минуту
-	a.cron.AddFunc("* * * * *", func() {
+	_, err := a.cron.AddFunc("* * * * *", func() {
 		a.services.Notification.CheckAndSendNotifications()
 	})
+	if err != nil {
+		panic(err)
+	}
+
+	// Напоминание о задачах на день с 6 утра до 18 каждые 2 часа
+	_, err = a.cron.AddFunc("0 6-18/2 * * *", func() {
+		a.services.Notification.SendAllTodayTaskNotification()
+	})
+	if err != nil {
+		panic(err)
+	}
 
 	// Сводка дня в 21:55 UTC+3
 	a.cron.AddFunc("55 18 * * *", func() {

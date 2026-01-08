@@ -259,7 +259,7 @@ func (b *Bot) snoozeTask(taskID int) {
 		return
 	}
 
-	newTime := t.Add(15 * time.Minute).Format("15:04")
+	newTime := t.Add(60 * time.Minute).Format("15:04")
 
 	// Обновляем время
 	_, err = b.db.GetDB().Exec("UPDATE tasks SET time_utc = ? WHERE id = ?", newTime, taskID)
