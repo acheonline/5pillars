@@ -48,7 +48,8 @@ func (b *Bot) registerHandlers() {
 	b.handlers["/summary"] = b.handleSummary
 	b.handlers["/week"] = b.handleWeek
 	b.handlers["/all"] = b.handleAll
-	b.handlers["/change"] = b.handleChangeDate
+	b.handlers["/time"] = b.handleChangeTime
+	b.handlers["/date"] = b.handleChangeDate
 	b.handlers["/feelings"] = b.handleFeelings
 	b.handlers["/help"] = b.handleHelp
 }
@@ -64,7 +65,6 @@ func (b *Bot) SendTaskNotification(task database.TaskNotification) error {
 	pillarName := utils.GetPillarName(task.Pillar)
 	pillarEmoji := utils.GetPillarEmoji(task.Pillar)
 
-	// Форматируем время для МСК
 	formattedTime := utils.FormatTimeForDisplay(task.TimeUTC)
 
 	message := fmt.Sprintf(
@@ -80,7 +80,6 @@ func (b *Bot) SendTaskNotification(task database.TaskNotification) error {
 
 	b.SendMessage(message)
 
-	// Отправляем кнопки
 	msg := tgbotapi.NewMessage(b.chatID, "Выполнено?")
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
@@ -100,12 +99,10 @@ func (b *Bot) SendCombinedMissedNotification(missedTasks []database.TaskNotifica
 		return nil
 	}
 
-	// Создаем заголовок сообщения
 	var message strings.Builder
 	message.WriteString(fmt.Sprintf("⏰ <b>ПРОПУЩЕННЫЕ ЗАДАЧИ (%d)</b>\n\n", len(missedTasks)))
 	message.WriteString("<i>Найдены задачи, которые должны были быть выполнены ранее:</i>\n\n")
 
-	// Добавляем каждую задачу в список
 	for i, task := range missedTasks {
 		pillarName := utils.GetPillarName(task.Pillar)
 		pillarEmoji := utils.GetPillarEmoji(task.Pillar)
@@ -126,13 +123,10 @@ func (b *Bot) SendCombinedMissedNotification(missedTasks []database.TaskNotifica
 
 	message.WriteString("👇 <i>Выполнили какие-то из них?</i>")
 
-	// Отправляем сообщение
 	b.SendMessage(message.String())
 
-	// Создаем клавиатуру с кнопками для каждой задачи
 	var keyboardRows [][]tgbotapi.InlineKeyboardButton
 
-	// Кнопки для каждой задачи
 	for _, task := range missedTasks {
 		buttonText := fmt.Sprintf("✅ Выполнена? %s", utils.GetPillarName(task.Pillar))
 		callbackData := fmt.Sprintf("missed_complete_%d", task.ID)
@@ -142,7 +136,6 @@ func (b *Bot) SendCombinedMissedNotification(missedTasks []database.TaskNotifica
 		))
 	}
 
-	// Отправляем клавиатуру
 	keyboardMsg := tgbotapi.NewMessage(b.chatID, "Выберите действие:")
 	keyboardMsg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(keyboardRows...)
 	keyboardMsg.ParseMode = "HTML"
@@ -200,7 +193,9 @@ func (b *Bot) handleUpdate(update tgbotapi.Update) {
 			b.handleFeelingsCommand(update.Message)
 		} else if strings.HasPrefix(text, "/all") {
 			b.handleAll(update.Message)
-		} else if strings.HasPrefix(text, "/change ") {
+		} else if strings.HasPrefix(text, "/time ") {
+			b.handleChangeTime(update.Message)
+		} else if strings.HasPrefix(text, "/date ") {
 			b.handleChangeDate(update.Message)
 		} else if handler, exists := b.handlers[command]; exists {
 			handler(update.Message)
@@ -219,7 +214,6 @@ func (b *Bot) handleCallbackQuery(callback *tgbotapi.CallbackQuery) {
 		return
 	}
 
-	// Обработка обычных задач
 	if strings.HasPrefix(data, "complete_") {
 		taskID, _ := strconv.Atoi(strings.TrimPrefix(data, "complete_"))
 		b.completeTask(taskID)
@@ -244,7 +238,6 @@ func (b *Bot) completeTask(taskID int) {
 }
 
 func (b *Bot) snoozeTask(taskID int) {
-	// Получаем текущее время задачи
 	var currentTime string
 	err := b.db.GetDB().QueryRow("SELECT time_utc FROM tasks WHERE id = ?", taskID).Scan(&currentTime)
 	if err != nil {
@@ -252,7 +245,6 @@ func (b *Bot) snoozeTask(taskID int) {
 		return
 	}
 
-	// Парсим время и добавляем 15 минут
 	t, err := time.Parse("15:04", currentTime)
 	if err != nil {
 		b.SendMessage("❌ Ошибка парсинга времени")
@@ -261,7 +253,6 @@ func (b *Bot) snoozeTask(taskID int) {
 
 	newTime := t.Add(60 * time.Minute).Format("15:04")
 
-	// Обновляем время
 	_, err = b.db.GetDB().Exec("UPDATE tasks SET time_utc = ? WHERE id = ?", newTime, taskID)
 	if err != nil {
 		b.SendMessage("❌ Ошибка откладывания задачи")
@@ -277,7 +268,6 @@ func (b *Bot) completeMissedTask(taskID int, messageID int) {
 		return
 	}
 
-	// Удаляем сообщение с кнопками
 	deleteMsg := tgbotapi.NewDeleteMessage(b.chatID, messageID)
 	b.bot.Send(deleteMsg)
 

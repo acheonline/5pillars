@@ -24,7 +24,8 @@ func (b *Bot) handleStart(msg *tgbotapi.Message) {
 /week - Сводка за неделю
 /add [задача] - Добавить задачу
 /all - все задачи на сегодня
-/change - изменить время выполнения задачи
+/time - изменить время выполнения задачи
+/date - изменить время выполнения задачи
 /feelings - Оценить свои ощущения
 /help - Помощь
 
@@ -141,8 +142,8 @@ func (b *Bot) handleAll(msg *tgbotapi.Message) {
 	b.SendMessageOrLogError(message)
 }
 
-func (b *Bot) handleChangeDate(msg *tgbotapi.Message) {
-	text := strings.TrimPrefix(msg.Text, "/change ")
+func (b *Bot) handleChangeTime(msg *tgbotapi.Message) {
+	text := strings.TrimPrefix(msg.Text, "/time ")
 	parts := strings.SplitN(text, " ", 2)
 	if len(parts) < 2 {
 		b.SendMessageOrLogError("❌ Формат: /change [id] [новое время в UTC]")
@@ -162,13 +163,42 @@ func (b *Bot) handleChangeDate(msg *tgbotapi.Message) {
 	}
 
 	repo := database.NewRepository(b.db)
-	if err := repo.UpdateTaskDate(id, time2do); err != nil {
+	if err := repo.UpdateTaskTime(id, time2do); err != nil {
 		b.SendMessageOrLogError("❌ Ошибка изменения времени задачи")
 		return
 	}
 	b.SendMessageOrLogError(fmt.Sprintf(
 		"✅ Время задачи id: %v обновлено на ⏰ %s UTC",
 		id, time2do))
+}
+
+func (b *Bot) handleChangeDate(msg *tgbotapi.Message) {
+	text := strings.TrimPrefix(msg.Text, "/date ")
+	parts := strings.SplitN(text, " ", 2)
+	if len(parts) < 2 {
+		b.SendMessageOrLogError("❌ Формат: /change [id] [новое дата в формате YYYY-MM-DD]")
+		return
+	}
+
+	id, err := strconv.Atoi(parts[0])
+	if err != nil {
+		b.SendMessageOrLogError("❌ id должен быть числовой")
+	}
+	date2do := parts[1]
+
+	re := regexp.MustCompile(`^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$`)
+	if !re.MatchString(date2do) {
+		b.SendMessageOrLogError("❌ Время должно быть в YYYY-MM-DD")
+		return
+	}
+
+	repo := database.NewRepository(b.db)
+	if err := repo.UpdateTaskDate(id, date2do); err != nil {
+		b.SendMessageOrLogError("❌ Ошибка изменения даты задачи")
+		return
+	}
+	b.SendMessageOrLogError(fmt.Sprintf(
+		"✅ Дата задачи #%v обновлена. 📅 %s ", id, date2do))
 }
 
 func (b *Bot) handleWeek(msg *tgbotapi.Message) {
@@ -387,8 +417,11 @@ func (b *Bot) handleHelp(msg *tgbotapi.Message) {
 /all - получить список всех задач на сегодня
 Пример: /all
 
-/change [id] [время в UTC] - Изменить время выполнения задачи
+/time [id] [время в UTC] - Изменить время выполнения задачи
 Пример: /change 3 10:00
+
+/date [id] [YYYY-mm-DD] - Изменить дату выполнения задачи
+Пример: /change 3 2026-01-10
 
 
 <b>Управление задачами:</b>

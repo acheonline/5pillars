@@ -12,8 +12,8 @@ func NewRepository(db *Database) *Repository {
 	return &Repository{Db: db}
 }
 
-// UpdateTaskDate обновляет дату задачи по ID
-func (r *Repository) UpdateTaskDate(taskID int, newTime string) error {
+// UpdateTaskTime обновляет время задачи по ID
+func (r *Repository) UpdateTaskTime(taskID int, newTime string) error {
 	query := `
 		UPDATE tasks 
 		SET time_utc = ?
@@ -28,7 +28,23 @@ func (r *Repository) UpdateTaskDate(taskID int, newTime string) error {
 	return nil
 }
 
-// Task repository methods
+// UpdateTaskDate обновляет дату задачи по ID
+func (r *Repository) UpdateTaskDate(taskID int, newDate string) error {
+	query := `
+		UPDATE tasks 
+		SET date = ?
+		WHERE id = ?
+	`
+
+	_, err := r.Db.db.Exec(query, newDate, taskID)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// GetTasksByDate поиск списка задач по указанной дате
 func (r *Repository) GetTasksByDate(date string) ([]DailyTask, error) {
 	rows, err := r.Db.db.Query(`
 		SELECT id, pillar, description, completed, time_utc, date, notes, created_at
@@ -159,7 +175,7 @@ func (r *Repository) GetMissedTasks(date, currentTime string) ([]TaskNotificatio
 	return tasks, nil
 }
 
-// Feelings repository methods
+// SaveFeelings добавляет запись об ощущениях
 func (r *Repository) SaveFeelings(feelings DailyFeelings) error {
 	_, err := r.Db.db.Exec(`
 		INSERT OR REPLACE INTO feelings 
@@ -193,7 +209,7 @@ func (r *Repository) GetFeelings(date string) (*DailyFeelings, error) {
 	return &feelings, nil
 }
 
-// Analytics repository methods
+// GetDailySummary сбор данных по дневной аналитике
 func (r *Repository) GetDailySummary(date string) (map[string]interface{}, error) {
 	summary := make(map[string]interface{})
 

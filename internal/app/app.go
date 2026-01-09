@@ -24,26 +24,19 @@ type Application struct {
 }
 
 func New(cfg *config.Config) (*Application, error) {
-	// Инициализация базы данных
 	db, err := database.New(cfg.Database.Path)
 	if err != nil {
 		return nil, err
 	}
 
-	// Инициализация сервисов
 	serviceManager := services.NewServiceManager(db)
-
-	// Инициализация Telegram бота
 	bot, err := telegram.NewBot(cfg.Telegram.Token, cfg.Telegram.ChatID, db, serviceManager)
 	if err != nil {
 		db.Close()
 		return nil, err
 	}
 
-	// Настройка сервисов
 	serviceManager.SetNotificationSender(bot)
-
-	// Создание контекста
 	ctx, cancel := context.WithCancel(context.Background())
 
 	app := &Application{
@@ -56,7 +49,6 @@ func New(cfg *config.Config) (*Application, error) {
 		ctx:        ctx,
 	}
 
-	// Настройка крон-заданий
 	app.setupCronJobs()
 
 	return app, nil
@@ -73,15 +65,12 @@ func (a *Application) Start() error {
 	log.Println("🔍 Проверка пропущенных уведомлений...")
 	a.services.Notification.SendMissedNotifications()
 
-	// Ждем еще секунду перед приветственным сообщением
 	time.Sleep(1 * time.Second)
 
-	// Отправка приветственного сообщения
 	a.sendWelcomeMessage()
 
-	// Создание задач на сегодня
 	today := time.Now().UTC().Format("2006-01-02")
-	if err := a.services.Task.CreateDefaultTasks(today); err != nil {
+	if err := a.services.Task.CreateDefaultTasksToday(today); err != nil {
 		log.Printf("⚠️ Ошибка создания задач: %v", err)
 	}
 
@@ -94,13 +83,9 @@ func (a *Application) Start() error {
 func (a *Application) Stop() error {
 	log.Println("🛑 Остановка приложения...")
 
-	// Отмена контекста
 	a.cancelFunc()
-
-	// Остановка планировщика
 	a.cron.Stop()
 
-	// Закрытие базы данных
 	if err := a.db.Close(); err != nil {
 		log.Printf("⚠️ Ошибка закрытия БД: %v", err)
 	}
@@ -134,7 +119,7 @@ func (a *Application) setupCronJobs() {
 	// Создание задач на следующий день в 22:00 UTC+3
 	a.cron.AddFunc("0 19 * * *", func() {
 		tomorrow := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
-		if err := a.services.Task.CreateDefaultTasks(tomorrow); err != nil {
+		if err := a.services.Task.CreateDefaultTasksNextDay(tomorrow); err != nil {
 			log.Printf("⚠️ Ошибка создания задач: %v", err)
 		}
 	})
@@ -162,7 +147,8 @@ func (a *Application) sendWelcomeMessage() {
 /feelings - оценить ощущения
 /add - доабвить задачу
 /all - список всех задач на сегодня
-/change - изменить время выполнения задачи
+/time - изменить время выполнения задачи
+/date - изменить дату выполнения задачи
 /help - справка по командам`
 
 	a.bot.SendMessage(message)

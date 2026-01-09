@@ -16,12 +16,35 @@ func NewTaskService(repo *database.Repository) *TaskService {
 	}
 }
 
-func (ts *TaskService) CreateDefaultTasks(date string) error {
+func (ts *TaskService) CreateDefaultTasksToday(date string) error {
 	tasks, err := ts.repository.GetTasksByDate(date)
 	if err != nil || len(tasks) > 0 {
 		return err
 	}
 
+	err2 := execute(date, err, ts)
+	if err2 != nil {
+		return err2
+	}
+
+	return nil
+}
+
+func (ts *TaskService) CreateDefaultTasksNextDay(date string) error {
+	_, err := ts.repository.GetTasksByDate(date)
+	if err != nil {
+		return err
+	}
+
+	err2 := execute(date, err, ts)
+	if err2 != nil {
+		return err2
+	}
+
+	return nil
+}
+
+func execute(date string, err error, ts *TaskService) error {
 	taskDate, err := time.Parse("2006-01-02", date)
 	if err != nil {
 		return err
@@ -102,6 +125,5 @@ func (ts *TaskService) CreateDefaultTasks(date string) error {
 			return err
 		}
 	}
-
 	return nil
 }
