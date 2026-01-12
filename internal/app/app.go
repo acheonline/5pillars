@@ -104,7 +104,7 @@ func (a *Application) setupCronJobs() {
 	}
 
 	// Напоминание о задачах на день с 6 утра до 18 каждые 2 часа
-	_, err = a.cron.AddFunc("0 6-18/2 * * *", func() {
+	_, err = a.cron.AddFunc("0 3-18/2 * * *", func() {
 		a.services.Notification.SendAllTodayTaskNotification()
 	})
 	if err != nil {

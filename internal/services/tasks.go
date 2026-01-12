@@ -56,11 +56,20 @@ func execute(date string, err error, ts *TaskService) error {
 			Pillar:      database.Energy,
 			Description: "День без алкоголя",
 			Completed:   false,
-			TimeUTC:     "15:00",
+			TimeUTC:     "18:00",
 			Date:        date,
 			Notes:       "Вечерний ритуал: кроссовки → активность → контрастный душ",
 		},
 	}
+
+	baseTasks = append(baseTasks, database.DailyTask{
+		Pillar:      database.Focus,
+		Description: "Уроки Duolingo",
+		Completed:   false,
+		TimeUTC:     "04:00",
+		Date:        date,
+		Notes:       "Уроки Duolingo",
+	})
 
 	switch weekday {
 	case time.Monday, time.Wednesday, time.Friday:
@@ -76,6 +85,17 @@ func execute(date string, err error, ts *TaskService) error {
 			Date:        date,
 			Notes:       "Ритм 2+1 - инвестиция в энергию",
 		})
+		if weekday == time.Monday {
+			baseTasks = append(baseTasks, database.DailyTask{
+				Pillar:      database.Focus,
+				Description: "Провести чекап ситуации с финансами",
+				Completed:   false,
+				TimeUTC:     "06:00",
+				Date:        date,
+				Notes:       "Ритм 2+1 - инвестиция в энергию",
+			})
+		}
+
 	}
 
 	if weekday >= time.Monday && weekday <= time.Friday {
@@ -83,7 +103,7 @@ func execute(date string, err error, ts *TaskService) error {
 			Pillar:      database.Focus,
 			Description: "Утренний блок 90 мин",
 			Completed:   false,
-			TimeUTC:     "06:00",
+			TimeUTC:     "09:00",
 			Date:        date,
 			Notes:       "Самая сложная задача дня",
 		})
