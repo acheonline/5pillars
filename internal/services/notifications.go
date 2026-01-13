@@ -90,27 +90,54 @@ func (ns *NotificationService) SendAllTodayTaskNotification() {
 		return
 	}
 
+	if len(tasks) == 0 {
+		ns.sender.SendMessage("📭 На сегодня задач нет")
+		return
+	}
+
 	var message strings.Builder
 	message.WriteString(fmt.Sprintf("📅 <b>!НАПОМИНАНИЕ-СВОДКА на %s</b>\n\n", utils.GetCurrentMSKDate()))
 	message.WriteString(utils.GetTimezoneInfo() + "\n\n")
 
 	for _, task := range tasks {
-		emoji := utils.GetPillarEmoji(string(task.Pillar))
 		pillarName := utils.GetPillarName(string(task.Pillar))
+		displayTime := utils.FormatTimeForDisplay(task.TimeUTC)
 
-		// Форматируем время для отображения
-		timeDisplay := utils.FormatTimeForDisplay(task.TimeUTC)
+		var status string
+		if task.Completed {
+			status = "✅"
+		} else if task.Skipped {
+			status = "➖"
+		} else {
+			taskTime, _ := time.Parse("15:04", task.TimeUTC)
+			currentUTC := time.Now().UTC()
+			taskUTC := time.Date(currentUTC.Year(), currentUTC.Month(), currentUTC.Day(),
+				taskTime.Hour(), taskTime.Minute(), 0, 0, time.UTC)
+
+			status = "⬜"
+			if currentUTC.After(taskUTC) {
+				status = "⏰"
+			}
+		}
 
 		message.WriteString(fmt.Sprintf(
-			"%s <b>%s</b> - %s\n%s\n\n",
-			emoji,
-			pillarName,
-			task.Description,
-			timeDisplay,
+			"%s <b>%s</b>\n"+
+				"%s\n"+
+				"<i>%s</i>\n\n",
+			status, pillarName,
+			displayTime, task.Description,
 		))
+
+		if task.Skipped && task.Notes != "" && strings.Contains(task.Notes, "Пропущено:") {
+			parts := strings.SplitN(task.Notes, "|", 2)
+			if len(parts) > 1 {
+				message.WriteString(fmt.Sprintf("📝 <i>%s</i>\n\n", strings.TrimSpace(parts[1])))
+			}
+		}
 	}
+
 	err = ns.sender.SendMessage(message.String())
 	if err != nil {
-		log.Printf("X Ошибка отправки уведомления: %v", err)
+		log.Printf("❌ Ошибка отправки уведомления: %v", err)
 	}
 }
