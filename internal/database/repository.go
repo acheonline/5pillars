@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"fmt"
 )
 
 type Repository struct {
@@ -106,7 +107,10 @@ func (r *Repository) GetTasksForNotification(currentTime, today string) ([]TaskN
 	rows, err := r.Db.db.Query(`
 		SELECT id, pillar, description, time_utc, notes, date
 		FROM tasks 
-		WHERE date = ? AND time_utc <= ? AND completed = 0
+		WHERE date = ? 
+		AND time_utc <= ? 
+		AND completed = 0 
+		AND skipped = 0 
 	`, today, currentTime)
 
 	if err != nil {
@@ -147,6 +151,7 @@ func (r *Repository) GetMissedTasks(date, currentTime string) ([]TaskNotificatio
 		WHERE date = ? 
 		AND time_utc <= ? 
 		AND completed = 0
+		AND skipped = 0
 		ORDER BY time_utc
 	`, date, currentTime)
 
@@ -173,6 +178,17 @@ func (r *Repository) GetMissedTasks(date, currentTime string) ([]TaskNotificatio
 	}
 
 	return tasks, nil
+}
+
+// MarkTaskAsSkipped отмечает задачу как пропущенную (ДОБАВЛЯЕМ НОВЫЙ МЕТОД)
+func (r *Repository) MarkTaskAsSkipped(taskID int, reasonCode, reasonText string) error {
+	_, err := r.Db.db.Exec(`
+		UPDATE tasks 
+		SET skipped = 1, 
+		    notes = ? 
+		WHERE id = ?
+	`, fmt.Sprintf("Пропущено: %s | %s", reasonCode, reasonText), taskID)
+	return err
 }
 
 // SaveFeelings добавляет запись об ощущениях
@@ -271,6 +287,7 @@ func (r *Repository) GetWeeklyAnalytics(startDate, endDate string) (*WeeklyAnaly
 			pillar,
 			COUNT(*) as total,
 			SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END) as completed
+			SUM(CASE WHEN skipped = 1 THEN 1 ELSE 0 END) as skipped
 		FROM tasks 
 		WHERE date BETWEEN ? AND ?
 		GROUP BY pillar
@@ -284,10 +301,15 @@ func (r *Repository) GetWeeklyAnalytics(startDate, endDate string) (*WeeklyAnaly
 	for rows.Next() {
 		var pillar string
 		var stats PillarStat
-		rows.Scan(&pillar, &stats.Total, &stats.Completed)
+		var skipped int
+		err := rows.Scan(&pillar, &stats.Total, &stats.Completed)
+		if err != nil {
+			return nil, err
+		}
 		analytics.PillarStats[pillar] = stats
 		analytics.TotalTasks += stats.Total
 		analytics.TotalDone += stats.Completed
+		analytics.TotalSkipped += skipped
 	}
 
 	metricRows, err := r.Db.db.Query(`
@@ -299,10 +321,18 @@ func (r *Repository) GetWeeklyAnalytics(startDate, endDate string) (*WeeklyAnaly
 	`, startDate, endDate)
 
 	if err == nil {
-		defer metricRows.Close()
+		defer func(metricRows *sql.Rows) {
+			err := metricRows.Close()
+			if err != nil {
+				panic(err)
+			}
+		}(metricRows)
 		if metricRows.Next() {
 			var avgEnergy, avgControl sql.NullFloat64
-			metricRows.Scan(&avgEnergy, &avgControl)
+			err := metricRows.Scan(&avgEnergy, &avgControl)
+			if err != nil {
+				return nil, err
+			}
 
 			if avgEnergy.Valid {
 				analytics.AvgFeelings["energy"] = avgEnergy.Float64

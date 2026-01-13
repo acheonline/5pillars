@@ -146,7 +146,7 @@ func (b *Bot) handleChangeTime(msg *tgbotapi.Message) {
 	text := strings.TrimPrefix(msg.Text, "/time ")
 	parts := strings.SplitN(text, " ", 2)
 	if len(parts) < 2 {
-		b.SendMessageOrLogError("❌ Формат: /change [id] [новое время в UTC]")
+		b.SendMessageOrLogError("❌ Формат: /time [id] [новое время в UTC]")
 		return
 	}
 
@@ -176,7 +176,7 @@ func (b *Bot) handleChangeDate(msg *tgbotapi.Message) {
 	text := strings.TrimPrefix(msg.Text, "/date ")
 	parts := strings.SplitN(text, " ", 2)
 	if len(parts) < 2 {
-		b.SendMessageOrLogError("❌ Формат: /change [id] [новое дата в формате YYYY-MM-DD]")
+		b.SendMessageOrLogError("❌ Формат: /date [id] [новое дата в формате YYYY-MM-DD]")
 		return
 	}
 

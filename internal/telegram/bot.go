@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"encoding/json"
 	"five-pillars/internal/utils"
 	"fmt"
 	"log"
@@ -16,11 +17,12 @@ import (
 )
 
 type Bot struct {
-	bot      *tgbotapi.BotAPI
-	chatID   int64
-	db       *database.Database
-	services *services.ServiceManager
-	handlers map[string]func(*tgbotapi.Message)
+	bot         *tgbotapi.BotAPI
+	chatID      int64
+	db          *database.Database
+	services    *services.ServiceManager
+	handlers    map[string]func(*tgbotapi.Message)
+	skipReasons map[string]string
 }
 
 func NewBot(token string, chatID int64, db *database.Database, serviceManager *services.ServiceManager) (*Bot, error) {
@@ -35,6 +37,12 @@ func NewBot(token string, chatID int64, db *database.Database, serviceManager *s
 		db:       db,
 		services: serviceManager,
 		handlers: make(map[string]func(*tgbotapi.Message)),
+		skipReasons: map[string]string{
+			"noenergy":   "🔋 Не было энергии",
+			"notime":     "⏰ Не хватило времени",
+			"irrelevant": "🎯 Задача неактуальна",
+			"illness":    "Болел",
+		},
 	}
 
 	bot.registerHandlers()
@@ -80,17 +88,40 @@ func (b *Bot) SendTaskNotification(task database.TaskNotification) error {
 
 	b.SendMessage(message)
 
-	msg := tgbotapi.NewMessage(b.chatID, "Выполнено?")
-	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+	keyboard := b.createTaskKeyboard(task.ID)
+	actionMsg := tgbotapi.NewMessage(b.chatID, "Выполнено?")
+	actionMsg.ReplyMarkup = keyboard
+	actionMsg.ParseMode = "HTML"
+
+	_, err := b.bot.Send(actionMsg)
+	return err
+}
+
+// createTaskKeyboard создает клавиатуру для взаимодействия с задачей
+func (b *Bot) createTaskKeyboard(taskID int) tgbotapi.InlineKeyboardMarkup {
+	return tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("✅ Да", fmt.Sprintf("complete_%d", task.ID)),
-			tgbotapi.NewInlineKeyboardButtonData("⏰ Отложить", fmt.Sprintf("snooze_%d", task.ID)),
+			tgbotapi.NewInlineKeyboardButtonData("✅ Выполнил", fmt.Sprintf("complete_%d", taskID)),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔄 Отложить", fmt.Sprintf("snooze_%d", taskID)),
+			tgbotapi.NewInlineKeyboardButtonData("❌ Закрыть", fmt.Sprintf("skip_%d", taskID)),
 		),
 	)
-	msg.ParseMode = "HTML"
+}
 
-	_, err := b.bot.Send(msg)
-	return err
+// createSkipReasonKeyboard создает клавиатуру для выбора причины пропуска
+func (b *Bot) createSkipReasonKeyboard(taskID int) tgbotapi.InlineKeyboardMarkup {
+	var rows [][]tgbotapi.InlineKeyboardButton
+
+	for code, text := range b.skipReasons {
+		callbackData := fmt.Sprintf("skip_reason_%d_%s", taskID, code)
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(text, callbackData),
+		))
+	}
+
+	return tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
 
 // SendCombinedMissedNotification отправляет объединенное сообщение о пропущенных задачах
@@ -178,76 +209,100 @@ func (b *Bot) handleUpdate(update tgbotapi.Update) {
 		return
 	}
 
-	text := update.Message.Text
+	b.handleMessage(update.Message)
+}
+
+// handleMessage обрабатывает текстовые сообщения
+func (b *Bot) handleMessage(msg *tgbotapi.Message) {
+	text := msg.Text
 	if text == "" {
 		return
 	}
 
-	if strings.HasPrefix(text, "/") {
-		parts := strings.Fields(text)
-		command := parts[0]
+	// Обработка команд с префиксами
+	switch {
+	case strings.HasPrefix(text, "/add "):
+		b.handleAddTask(msg)
+	case strings.HasPrefix(text, "/feelings "):
+		b.handleFeelingsCommand(msg)
+	case strings.HasPrefix(text, "/time "):
+		b.handleChangeTime(msg)
+	case strings.HasPrefix(text, "/date "):
+		b.handleChangeDate(msg)
+	default:
+		if strings.HasPrefix(text, "/") {
+			parts := strings.Fields(text)
+			command := parts[0]
 
-		if strings.HasPrefix(text, "/add ") {
-			b.handleAddTask(update.Message)
-		} else if strings.HasPrefix(text, "/feelings ") {
-			b.handleFeelingsCommand(update.Message)
-		} else if strings.HasPrefix(text, "/all") {
-			b.handleAll(update.Message)
-		} else if strings.HasPrefix(text, "/time ") {
-			b.handleChangeTime(update.Message)
-		} else if strings.HasPrefix(text, "/date ") {
-			b.handleChangeDate(update.Message)
-		} else if handler, exists := b.handlers[command]; exists {
-			handler(update.Message)
-			return
-		} else {
-			b.SendMessageOrLogError("❌ Неизвестная команда. Используйте /help")
+			if handler, exists := b.handlers[command]; exists {
+				handler(msg)
+			} else {
+				b.SendMessageOrLogError("❌ Неизвестная команда. Используйте /help")
+			}
 		}
 	}
 }
 
 func (b *Bot) handleCallbackQuery(callback *tgbotapi.CallbackQuery) {
+	defer func(bot *tgbotapi.BotAPI, c tgbotapi.Chattable) {
+		_, err := bot.Request(c)
+		if err != nil {
+			fmt.Printf("Telegram Bot request error: %s\n", err.Error())
+		}
+	}(b.bot, tgbotapi.NewCallback(callback.ID, "✅"))
+
+	if callback.Message.Chat.ID != b.chatID {
+		return
+	}
+
 	data := callback.Data
-	chatID := callback.Message.Chat.ID
+	log.Printf("Received callback: %s", data)
 
-	if chatID != b.chatID {
-		return
+	switch {
+	case strings.HasPrefix(data, "complete_"):
+		b.handleCompleteTask(data)
+	case strings.HasPrefix(data, "snooze_"):
+		b.handleSnoozeTask(data)
+	case strings.HasPrefix(data, "skip_reason_"):
+		b.handleSkipReason(data)
+	case strings.HasPrefix(data, "skip_"):
+		b.handleSkipTask(data, callback.Message.MessageID)
+	case strings.HasPrefix(data, "missed_complete_"):
+		b.handleMissedCompleteTask(data, callback.Message.MessageID)
 	}
-
-	if strings.HasPrefix(data, "complete_") {
-		taskID, _ := strconv.Atoi(strings.TrimPrefix(data, "complete_"))
-		b.completeTask(taskID)
-	} else if strings.HasPrefix(data, "snooze_") {
-		taskID, _ := strconv.Atoi(strings.TrimPrefix(data, "snooze_"))
-		b.snoozeTask(taskID)
-	} else if strings.HasPrefix(data, "missed_complete_") {
-		taskID, _ := strconv.Atoi(strings.TrimPrefix(data, "missed_complete_"))
-		b.completeMissedTask(taskID, callback.Message.MessageID)
-	}
-
-	callbackConfig := tgbotapi.NewCallback(callback.ID, "✅")
-	b.bot.Request(callbackConfig)
 }
 
-func (b *Bot) completeTask(taskID int) {
-	if err := database.NewRepository(b.db).UpdateTaskCompletion(taskID, true); err != nil {
-		b.SendMessage("❌ Ошибка обновления задачи")
-		return
-	}
-	b.SendMessage("✅ Задача выполнена!")
-}
-
-func (b *Bot) snoozeTask(taskID int) {
-	var currentTime string
-	err := b.db.GetDB().QueryRow("SELECT time_utc FROM tasks WHERE id = ?", taskID).Scan(&currentTime)
+// handleCompleteTask обрабатывает завершение задачи
+func (b *Bot) handleCompleteTask(data string) {
+	taskID, err := strconv.Atoi(strings.TrimPrefix(data, "complete_"))
 	if err != nil {
-		b.SendMessage("❌ Ошибка получения времени задачи")
+		b.SendMessageOrLogError("❌ Ошибка обработки запроса")
+		return
+	}
+	if err := database.NewRepository(b.db).UpdateTaskCompletion(taskID, true); err != nil {
+		b.SendMessageOrLogError("❌ Ошибка обновления задачи")
+		return
+	}
+	b.SendMessageOrLogError("✅ Задача выполнена!")
+}
+
+// handleSnoozeTask обрабатывает откладывание задачи
+func (b *Bot) handleSnoozeTask(data string) {
+	taskID, err := strconv.Atoi(strings.TrimPrefix(data, "snooze_"))
+	if err != nil {
+		b.SendMessageOrLogError("❌ Ошибка обработки запроса")
+		return
+	}
+	var currentTime string
+	err = b.db.GetDB().QueryRow("SELECT time_utc FROM tasks WHERE id = ?", taskID).Scan(&currentTime)
+	if err != nil {
+		b.SendMessageOrLogError("❌ Ошибка получения времени задачи")
 		return
 	}
 
 	t, err := time.Parse("15:04", currentTime)
 	if err != nil {
-		b.SendMessage("❌ Ошибка парсинга времени")
+		b.SendMessageOrLogError("❌ Ошибка парсинга времени")
 		return
 	}
 
@@ -255,21 +310,88 @@ func (b *Bot) snoozeTask(taskID int) {
 
 	_, err = b.db.GetDB().Exec("UPDATE tasks SET time_utc = ? WHERE id = ?", newTime, taskID)
 	if err != nil {
-		b.SendMessage("❌ Ошибка откладывания задачи")
+		b.SendMessageOrLogError("❌ Ошибка откладывания задачи")
 		return
 	}
 
-	b.SendMessage(fmt.Sprintf("⏰ Задача отложена до %s UTC", newTime))
+	b.SendMessageOrLogError(fmt.Sprintf("⏰ Задача отложена до %s UTC", newTime))
 }
 
-func (b *Bot) completeMissedTask(taskID int, messageID int) {
-	if err := database.NewRepository(b.db).UpdateTaskCompletion(taskID, true); err != nil {
-		b.SendMessage("❌ Ошибка обновления задачи")
+// handleSkipTask обрабатывает начало процесса пропуска задачи
+func (b *Bot) handleSkipTask(data string, messageID int) {
+	taskID, err := strconv.Atoi(strings.TrimPrefix(data, "skip_"))
+	if err != nil {
+		b.SendMessageOrLogError("❌ Ошибка обработки запроса")
 		return
 	}
 
-	deleteMsg := tgbotapi.NewDeleteMessage(b.chatID, messageID)
-	b.bot.Send(deleteMsg)
+	b.safeDeleteMessage(messageID)
 
-	b.SendMessage("✅ Задача отмечена выполненной!")
+	reasonMsg := tgbotapi.NewMessage(b.chatID, "📝 Почему задача не выполнена?\n(Это поможет аналитике)")
+	reasonMsg.ReplyMarkup = b.createSkipReasonKeyboard(taskID)
+	_, err = b.bot.Send(reasonMsg)
+	if err != nil {
+		return
+	}
+}
+
+func (b *Bot) handleSkipReason(data string) {
+	parts := strings.Split(strings.TrimPrefix(data, "skip_reason_"), "_")
+	if len(parts) != 2 {
+		b.SendMessageOrLogError("❌ Ошибка обработки запроса")
+		return
+	}
+
+	taskID, _ := strconv.Atoi(parts[0])
+	reasonCode := parts[1]
+	reasonText := b.skipReasons[reasonCode]
+
+	repo := database.NewRepository(b.db)
+	if err := repo.MarkTaskAsSkipped(taskID, reasonCode, reasonText); err != nil {
+		b.SendMessageOrLogError("❌ Ошибка сохранения пропуска")
+		log.Printf("Ошибка MarkTaskAsSkipped: %v", err)
+		return
+	}
+
+	b.SendMessageOrLogError(fmt.Sprintf("➖ Задача пропущена\n📝 Причина: %s\n\n💡 Эта информация будет учтена в еженедельном анализе.", reasonText))
+}
+
+// handleMissedCompleteTask обрабатывает завершение пропущенной задачи
+func (b *Bot) handleMissedCompleteTask(data string, messageID int) {
+	taskID, err := strconv.Atoi(strings.TrimPrefix(data, "missed_complete_"))
+	if err != nil {
+		b.SendMessageOrLogError("❌ Ошибка обработки запроса")
+		return
+	}
+
+	if err := database.NewRepository(b.db).UpdateTaskCompletion(taskID, true); err != nil {
+		b.SendMessageOrLogError("❌ Ошибка обновления задачи")
+		return
+	}
+
+	b.safeDeleteMessage(messageID)
+
+	b.SendMessageOrLogError("✅ Задача отмечена выполненной!")
+}
+
+// safeDeleteMessage вспомогательная функция для безопасного удаления сообщений
+func (b *Bot) safeDeleteMessage(messageID int) {
+	deleteConfig := tgbotapi.NewDeleteMessage(b.chatID, messageID)
+
+	resp, err := b.bot.Request(deleteConfig)
+	if err != nil {
+		log.Printf("⚠️ Ошибка при удалении сообщения %d: %v", messageID, err)
+		return
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(resp.Result, &result); err != nil {
+		log.Printf("⚠️ Не удалось декодировать ответ при удалении сообщения %d: %v", messageID, err)
+	}
+
+	if ok, exists := result["ok"]; exists {
+		if isOk, okBool := ok.(bool); okBool && isOk {
+			log.Printf("✅ Сообщение %d успешно удалено", messageID)
+		}
+	}
 }
