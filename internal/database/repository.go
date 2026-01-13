@@ -48,7 +48,7 @@ func (r *Repository) UpdateTaskDate(taskID int, newDate string) error {
 // GetTasksByDate поиск списка задач по указанной дате
 func (r *Repository) GetTasksByDate(date string) ([]DailyTask, error) {
 	rows, err := r.Db.db.Query(`
-		SELECT id, pillar, description, completed, time_utc, date, notes, created_at
+		SELECT id, pillar, description, completed, time_utc, date, notes, created_at, skipped
 		FROM tasks 
 		WHERE date = ?
 		ORDER BY time_utc
@@ -75,6 +75,7 @@ func (r *Repository) GetTasksByDate(date string) ([]DailyTask, error) {
 			&task.Date,
 			&task.Notes,
 			&task.CreatedAt,
+			&task.Skipped,
 		)
 		if err != nil {
 			return nil, err
@@ -122,43 +123,6 @@ func (r *Repository) GetTasksForNotification(currentTime, today string) ([]TaskN
 			panic(err)
 		}
 	}(rows)
-
-	var tasks []TaskNotification
-	for rows.Next() {
-		var task TaskNotification
-		err := rows.Scan(
-			&task.ID,
-			&task.Pillar,
-			&task.Description,
-			&task.TimeUTC,
-			&task.Notes,
-			&task.Date,
-		)
-		if err != nil {
-			return nil, err
-		}
-		tasks = append(tasks, task)
-	}
-
-	return tasks, nil
-}
-
-// GetMissedTasks возвращает задачи, время которых уже прошло, но они не выполнены
-func (r *Repository) GetMissedTasks(date, currentTime string) ([]TaskNotification, error) {
-	rows, err := r.Db.db.Query(`
-		SELECT id, pillar, description, time_utc, notes, date
-		FROM tasks 
-		WHERE date = ? 
-		AND time_utc <= ? 
-		AND completed = 0
-		AND skipped = 0
-		ORDER BY time_utc
-	`, date, currentTime)
-
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
 
 	var tasks []TaskNotification
 	for rows.Next() {

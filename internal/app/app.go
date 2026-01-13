@@ -62,11 +62,6 @@ func (a *Application) Start() error {
 	a.cron.Start()
 	time.Sleep(3 * time.Second)
 
-	log.Println("🔍 Проверка пропущенных уведомлений...")
-	a.services.Notification.SendMissedNotifications()
-
-	time.Sleep(1 * time.Second)
-
 	a.sendWelcomeMessage()
 
 	today := time.Now().UTC().Format("2006-01-02")
@@ -151,5 +146,5 @@ func (a *Application) sendWelcomeMessage() {
 /date - изменить дату выполнения задачи
 /help - справка по командам`
 
-	a.bot.SendMessage(message)
+	a.bot.SendMessageOrLogError(message)
 }

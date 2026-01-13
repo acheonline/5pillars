@@ -136,11 +136,10 @@ func (b *Bot) SendCombinedMissedNotification(missedTasks []database.TaskNotifica
 
 	for i, task := range missedTasks {
 		pillarName := utils.GetPillarName(task.Pillar)
-		pillarEmoji := utils.GetPillarEmoji(task.Pillar)
 
 		message.WriteString(fmt.Sprintf(
-			"%d. <b>%s %s</b>\n",
-			i+1, pillarEmoji, pillarName,
+			"%d. <b>%s</b>\n",
+			i+1, pillarName,
 		))
 		message.WriteString(fmt.Sprintf(
 			"   <i>%s</i>\n",
@@ -151,28 +150,8 @@ func (b *Bot) SendCombinedMissedNotification(missedTasks []database.TaskNotifica
 			task.TimeUTC,
 		))
 	}
-
-	message.WriteString("👇 <i>Выполнили какие-то из них?</i>")
-
-	b.SendMessage(message.String())
-
-	var keyboardRows [][]tgbotapi.InlineKeyboardButton
-
-	for _, task := range missedTasks {
-		buttonText := fmt.Sprintf("✅ Выполнена? %s", utils.GetPillarName(task.Pillar))
-		callbackData := fmt.Sprintf("missed_complete_%d", task.ID)
-
-		keyboardRows = append(keyboardRows, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(buttonText, callbackData),
-		))
-	}
-
-	keyboardMsg := tgbotapi.NewMessage(b.chatID, "Выберите действие:")
-	keyboardMsg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(keyboardRows...)
-	keyboardMsg.ParseMode = "HTML"
-
-	_, err := b.bot.Send(keyboardMsg)
-	return err
+	b.SendMessageOrLogError(message.String())
+	return nil
 }
 
 func (b *Bot) GetUsername() string {
@@ -386,7 +365,15 @@ func (b *Bot) safeDeleteMessage(messageID int) {
 
 	var result map[string]interface{}
 	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		log.Printf("⚠️ Не удалось декодировать ответ при удалении сообщения %d: %v", messageID, err)
+		resultStr := strings.TrimSpace(string(resp.Result))
+		if resultStr == "true" {
+			log.Printf("✅ Сообщение %d успешно удалено (API вернул true)", messageID)
+			return
+		}
+
+		log.Printf("⚠️ Не удалось декодировать ответ при удалении сообщения %d: %v. Ответ: %s",
+			messageID, err, string(resp.Result))
+		return
 	}
 
 	if ok, exists := result["ok"]; exists {

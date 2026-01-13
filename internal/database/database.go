@@ -64,7 +64,6 @@ func (d *Database) init() error {
 
 	d.migrateAddSkippedColumn()
 
-	// Создаем индексы
 	indexQueries := []string{
 		`CREATE INDEX IF NOT EXISTS idx_tasks_date ON tasks(date)`,
 		`CREATE INDEX IF NOT EXISTS idx_tasks_pillar ON tasks(pillar)`,

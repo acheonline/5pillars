@@ -85,17 +85,6 @@ func ParseMSKTimeToUTC(mskTime string) (string, error) {
 	return utcTime.Format("15:04"), nil
 }
 
-// FormatTaskTime форматирует время задачи для отображения
-func FormatTaskTime(utcTime string, completed bool) string {
-	status := "⬜"
-	if completed {
-		status = "✅"
-	}
-
-	formattedTime := FormatTimeForDisplay(utcTime)
-	return fmt.Sprintf("⏰ %s\n%s", formattedTime, status)
-}
-
 // GetTimezoneInfo возвращает информацию о временной зоне
 func GetTimezoneInfo() string {
 	nowUTC := time.Now().UTC()

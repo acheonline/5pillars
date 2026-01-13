@@ -55,19 +55,41 @@ func (b *Bot) handleToday(msg *tgbotapi.Message) {
 	message.WriteString(utils.GetTimezoneInfo() + "\n\n")
 
 	for _, task := range tasks {
-		emoji := utils.GetPillarEmoji(string(task.Pillar))
 		pillarName := utils.GetPillarName(string(task.Pillar))
 
-		// Форматируем время для отображения
-		timeDisplay := utils.FormatTaskTime(task.TimeUTC, task.Completed)
+		displayTime := utils.FormatTimeForDisplay(task.TimeUTC)
+
+		var status string
+		if task.Completed {
+			status = "✅"
+		} else if task.Skipped {
+			status = "➖"
+		} else {
+			taskTime, _ := time.Parse("15:04", task.TimeUTC)
+			currentUTC := time.Now().UTC()
+			taskUTC := time.Date(currentUTC.Year(), currentUTC.Month(), currentUTC.Day(),
+				taskTime.Hour(), taskTime.Minute(), 0, 0, time.UTC)
+
+			status = "⬜"
+			if currentUTC.After(taskUTC) {
+				status = "⏰"
+			}
+		}
 
 		message.WriteString(fmt.Sprintf(
-			"%s <b>%s</b> - %s\n%s\n\n",
-			emoji,
-			pillarName,
-			task.Description,
-			timeDisplay,
+			"%s <b>%s</b>\n"+
+				"⏰ %s\n"+
+				"<i>%s</i>\n\n",
+			status, pillarName,
+			displayTime, task.Description,
 		))
+
+		if task.Skipped && task.Notes != "" && strings.Contains(task.Notes, "Пропущено:") {
+			parts := strings.SplitN(task.Notes, "|", 2)
+			if len(parts) > 1 {
+				message.WriteString(fmt.Sprintf("📝 <i>%s</i>\n\n", strings.TrimSpace(parts[1])))
+			}
+		}
 	}
 
 	b.SendMessageOrLogError(message.String())
@@ -136,6 +158,8 @@ func (b *Bot) handleAll(msg *tgbotapi.Message) {
 		status := "❌"
 		if t.Completed {
 			status = "✅"
+		} else if t.Skipped {
+			status = "💤"
 		}
 		message += fmt.Sprintf("id: %d, %s %s\n", t.ID, t.Description, status)
 	}

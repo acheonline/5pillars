@@ -37,6 +37,7 @@ type DailyTask struct {
 	Date        string    `json:"date"`
 	Notes       string    `json:"notes,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
+	Skipped     bool      `json:"skipped"`
 }
 
 type DailyFeelings struct {

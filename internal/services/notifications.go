@@ -14,7 +14,6 @@ import (
 type NotificationSender interface {
 	SendMessage(text string) error
 	SendTaskNotification(task database.TaskNotification) error
-	SendCombinedMissedNotification(missedTasks []database.TaskNotification) error
 }
 
 type NotificationService struct {
@@ -52,42 +51,6 @@ func (ns *NotificationService) CheckAndSendNotifications() {
 			log.Printf("❌ Ошибка отправки: %v", err)
 		} else {
 			log.Printf("✅ Уведомление отправлено: ID=%d", task.ID)
-		}
-	}
-}
-
-// SendMissedNotifications отправляет ОБЪЕДИНЕННОЕ сообщение о пропущенных задачах
-func (ns *NotificationService) SendMissedNotifications() {
-	now := time.Now().UTC()
-	currentTime := now.Format("15:04")
-	today := now.Format("2006-01-02")
-
-	log.Printf("⏰ Проверка пропущенных уведомлений за %s (текущее время: %s)", today, currentTime)
-
-	tasks, err := ns.repository.GetMissedTasks(today, currentTime)
-	if err != nil {
-		log.Printf("⚠️ Ошибка получения пропущенных задач: %v", err)
-		return
-	}
-
-	if len(tasks) == 0 {
-		log.Println("✅ Пропущенных уведомлений нет")
-		return
-	}
-
-	log.Printf("📨 Найдено пропущенных задач: %d", len(tasks))
-
-	// Отправляем ОДНО объединенное сообщение вместо нескольких
-	if len(tasks) > 0 {
-		if err := ns.sender.SendCombinedMissedNotification(tasks); err != nil {
-			log.Printf("❌ Ошибка отправки объединенного уведомления: %v", err)
-			// Fallback: отправляем обычные уведомления (старый способ)
-			for _, task := range tasks {
-				err := ns.sender.SendTaskNotification(task)
-				if err != nil {
-					log.Fatal(err)
-				}
-			}
 		}
 	}
 }
@@ -136,7 +99,7 @@ func (ns *NotificationService) SendAllTodayTaskNotification() {
 		pillarName := utils.GetPillarName(string(task.Pillar))
 
 		// Форматируем время для отображения
-		timeDisplay := utils.FormatTaskTime(task.TimeUTC, task.Completed)
+		timeDisplay := utils.FormatTimeForDisplay(task.TimeUTC)
 
 		message.WriteString(fmt.Sprintf(
 			"%s <b>%s</b> - %s\n%s\n\n",
