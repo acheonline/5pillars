@@ -51,14 +51,15 @@ type DailyFeelings struct {
 }
 
 type WeeklyAnalytics struct {
-	WeekNumber  int                   `json:"week_number"`
-	StartDate   string                `json:"start_date"`
-	EndDate     string                `json:"end_date"`
-	TotalDone   int                   `json:"total_done"`
-	TotalTasks  int                   `json:"total_tasks"`
-	PillarStats map[string]PillarStat `json:"pillar_stats"`
-	AvgFeelings map[string]float64    `json:"avg_feelings"`
-	Insights    string                `json:"insights"`
+	WeekNumber   int                   `json:"week_number"`
+	StartDate    string                `json:"start_date"`
+	EndDate      string                `json:"end_date"`
+	TotalDone    int                   `json:"total_done"`
+	TotalTasks   int                   `json:"total_tasks"`
+	TotalSkipped int                   `json:"total_skipped"`
+	PillarStats  map[string]PillarStat `json:"pillar_stats"`
+	AvgFeelings  map[string]float64    `json:"avg_feelings"`
+	Insights     string                `json:"insights"`
 }
 
 type PillarStat struct {

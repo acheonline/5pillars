@@ -54,11 +54,6 @@ func (d *Database) init() error {
 			notes TEXT,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
-
-		`CREATE INDEX IF NOT EXISTS idx_tasks_date ON tasks(date)`,
-		`CREATE INDEX IF NOT EXISTS idx_tasks_pillar ON tasks(pillar)`,
-		`CREATE INDEX IF NOT EXISTS idx_tasks_completed ON tasks(completed)`,
-		`CREATE INDEX IF NOT EXISTS idx_tasks_time ON tasks(time_utc)`,
 	}
 
 	for _, query := range queries {
@@ -67,7 +62,48 @@ func (d *Database) init() error {
 		}
 	}
 
+	d.migrateAddSkippedColumn()
+
+	// Создаем индексы
+	indexQueries := []string{
+		`CREATE INDEX IF NOT EXISTS idx_tasks_date ON tasks(date)`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_pillar ON tasks(pillar)`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_completed ON tasks(completed)`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_skipped ON tasks(skipped)`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_time ON tasks(time_utc)`,
+	}
+
+	for _, query := range indexQueries {
+		if _, err := d.db.Exec(query); err != nil {
+			return fmt.Errorf("ошибка создания индекса: %v", err)
+		}
+	}
+
 	return nil
+}
+
+// migrateAddSkippedColumn добавляет поле skipped если его нет
+func (d *Database) migrateAddSkippedColumn() {
+	var columnExists bool
+	err := d.db.QueryRow(`
+		SELECT COUNT(*) > 0 
+		FROM pragma_table_info('tasks') 
+		WHERE name = 'skipped'
+	`).Scan(&columnExists)
+
+	if err != nil {
+		log.Printf("Ошибка проверки поля skipped: %v", err)
+		return
+	}
+
+	if !columnExists {
+		_, err := d.db.Exec(`ALTER TABLE tasks ADD COLUMN skipped BOOLEAN DEFAULT 0`)
+		if err != nil {
+			log.Printf("Ошибка добавления поля skipped: %v", err)
+		} else {
+			log.Println("✅ Поле 'skipped' добавлено в таблицу tasks")
+		}
+	}
 }
 
 func (d *Database) Close() error {
