@@ -65,6 +65,7 @@ type WeeklyAnalytics struct {
 
 type PillarStat struct {
 	Completed int `json:"completed"`
+	Skipped   int `json:"skipped"`
 	Total     int `json:"total"`
 }
 

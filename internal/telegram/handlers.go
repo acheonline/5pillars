@@ -252,12 +252,12 @@ func (b *Bot) handleWeek(msg *tgbotapi.Message) {
 			percentage = float64(stats.Completed) / float64(stats.Total) * 100
 		}
 		message += fmt.Sprintf(
-			"%s %s: %d/%d (%.0f%%)\n",
-			database.PillarEmojis[p],
+			"%s: %d/%d (%.0f%%), пропущено задач: %d\n",
 			database.PillarNames[p],
 			stats.Completed,
 			stats.Total,
 			percentage,
+			stats.Skipped,
 		)
 	}
 

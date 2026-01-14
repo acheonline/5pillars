@@ -250,7 +250,7 @@ func (r *Repository) GetWeeklyAnalytics(startDate, endDate string) (*WeeklyAnaly
 		SELECT 
 			pillar,
 			COUNT(*) as total,
-			SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END) as completed
+			SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END) as completed,
 			SUM(CASE WHEN skipped = 1 THEN 1 ELSE 0 END) as skipped
 		FROM tasks 
 		WHERE date BETWEEN ? AND ?
@@ -265,15 +265,14 @@ func (r *Repository) GetWeeklyAnalytics(startDate, endDate string) (*WeeklyAnaly
 	for rows.Next() {
 		var pillar string
 		var stats PillarStat
-		var skipped int
-		err := rows.Scan(&pillar, &stats.Total, &stats.Completed)
+		err := rows.Scan(&pillar, &stats.Total, &stats.Completed, &stats.Skipped)
 		if err != nil {
 			return nil, err
 		}
 		analytics.PillarStats[pillar] = stats
 		analytics.TotalTasks += stats.Total
 		analytics.TotalDone += stats.Completed
-		analytics.TotalSkipped += skipped
+		analytics.TotalSkipped += stats.Skipped
 	}
 
 	metricRows, err := r.Db.db.Query(`

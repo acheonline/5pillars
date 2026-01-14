@@ -66,7 +66,7 @@ func execute(date string, err error, ts *TaskService) error {
 		Pillar:      database.Focus,
 		Description: "Уроки Duolingo",
 		Completed:   false,
-		TimeUTC:     "04:00",
+		TimeUTC:     "06:00",
 		Date:        date,
 		Notes:       "Уроки Duolingo",
 	})

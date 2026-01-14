@@ -22,7 +22,7 @@ func (as *AnalyticsService) GetWeeklyAnalytics() (*database.WeeklyAnalytics, err
 	now := time.Now()
 	year, week := now.ISOWeek()
 	startDate := as.firstDayOfISOWeek(year, week)
-	endDate := startDate.AddDate(0, 0, 6)
+	endDate := startDate.AddDate(0, 0, 7)
 
 	analytics, err := as.repository.GetWeeklyAnalytics(
 		startDate.Format("2006-01-02"),
