@@ -85,16 +85,6 @@ func execute(date string, err error, ts *TaskService) error {
 			Date:        date,
 			Notes:       "Ритм 2+1 - инвестиция в энергию",
 		})
-		if weekday == time.Monday {
-			baseTasks = append(baseTasks, database.DailyTask{
-				Pillar:      database.Focus,
-				Description: "Провести чекап ситуации с финансами",
-				Completed:   false,
-				TimeUTC:     "06:00",
-				Date:        date,
-				Notes:       "Ритм 2+1 - инвестиция в энергию",
-			})
-		}
 
 	}
 
@@ -126,6 +116,14 @@ func execute(date string, err error, ts *TaskService) error {
 			TimeUTC:     "08:00",
 			Date:        date,
 			Notes:       "Одно конкретное действие: замер, выбор, упаковка",
+		})
+		baseTasks = append(baseTasks, database.DailyTask{
+			Pillar:      database.Focus,
+			Description: "Провести чекап ситуации с финансами",
+			Completed:   false,
+			TimeUTC:     "12:00",
+			Date:        date,
+			Notes:       "Всегда имей план на будущее по твоим инвестициям - так спокойнее",
 		})
 	}
 
