@@ -29,7 +29,7 @@ load_config() {
     local config_file="deploy-config.env"
 
     log_info "Загрузка конфигурации из $config_file"
-    unset DOCKER_REPO DOCKER_PASSWORD REMOTE_USER REMOTE_HOST SSH_KEY REMOTE_PATH IMAGE_NAME
+    unset DOCKER_REPO DOCKER_PASSWORD REMOTE_USER REMOTE_HOST REMOTE_PASSWORD IMAGE_NAME
     while IFS='=' read -r key value || [ -n "$key" ]; do
         if [[ $key =~ ^# ]] || [[ -z "$key" ]]; then
             continue
@@ -40,33 +40,23 @@ load_config() {
 
         export "$key"="$value"
 
-        if [[ "$key" == "DOCKER_PASSWORD" ]]; then
+        if [[ "$key" == "DOCKER_PASSWORD" ]] || [[ "$key" == "REMOTE_PASSWORD" ]]; then
             log_info "  $key=********"
         else
             log_info "  $key=$value"
         fi
     done < "$config_file"
 
-    local required_vars=("DOCKER_REPO" "DOCKER_PASSWORD" "REMOTE_USER" "REMOTE_HOST" "IMAGE_NAME")
+    local required_vars=("DOCKER_REPO" "DOCKER_PASSWORD" "REMOTE_USER" "REMOTE_HOST" "REMOTE_PASSWORD" "IMAGE_NAME")
     for var in "${required_vars[@]}"; do
         if [ -z "${!var}" ]; then
             log_error "Переменная $var не задана в конфигурации!"
         fi
     done
 
-    if [ -z "$SSH_KEY" ]; then
-        SSH_KEY="$HOME/.ssh/id_rsa"
-        log_info "  SSH_KEY не задан, использую по умолчанию: $SSH_KEY"
-    fi
-
     if [ -z "$REMOTE_PATH" ]; then
         REMOTE_PATH="/app/$IMAGE_NAME"
         log_info "  REMOTE_PATH не задан, использую по умолчанию: $REMOTE_PATH"
-    fi
-
-    if [ ! -f "$SSH_KEY" ]; then
-        log_warning "SSH ключ не найден: $SSH_KEY"
-        log_info "Проверьте путь в deploy-config.env или создайте ключ"
     fi
 
     log_success "Конфигурация загружена"
@@ -77,6 +67,10 @@ check_dependencies() {
 
     if ! command -v docker &> /dev/null; then
         log_error "Docker не установлен!"
+    fi
+
+    if ! command -v sshpass &> /dev/null; then
+        log_error "sshpass не установлен! Установите его: sudo apt-get install sshpass (Ubuntu/Debian) или brew install hudochenkov/sshpass/sshpass (MacOS)"
     fi
 
     if ! command -v ssh &> /dev/null; then
@@ -197,67 +191,157 @@ update_compose_file() {
     log_success "docker-compose.yml обновлен"
 }
 
+run_remote_cmd() {
+    # Полностью очищаем вывод от ANSI-кодов и экранируем специальные символы
+    sshpass -p "$REMOTE_PASSWORD" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "${REMOTE_USER}@${REMOTE_HOST}" "$1" 2>&1 | \
+        sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' | \
+        sed 's/\x1b\[[0-9;]*m//g' | \
+        sed 's/\x1b(B//g' | \
+        sed 's/\x1b\[?[0-9;]*[hl]//g' | \
+        grep -v 'bash: .* command not found' 2>/dev/null || true
+    return 0
+}
+
+copy_to_remote() {
+    sshpass -p "$REMOTE_PASSWORD" scp -o StrictHostKeyChecking=no "$1" "${REMOTE_USER}@${REMOTE_HOST}:$2"
+}
+
+install_docker_compose() {
+    log_info "Установка Docker Compose на удаленном сервере..."
+
+    # Определяем архитектуру
+    local arch=$(run_remote_cmd "uname -m")
+    local compose_version="v2.24.0"
+
+    case "$arch" in
+        x86_64)
+            local compose_url="https://github.com/docker/compose/releases/download/${compose_version}/docker-compose-linux-x86_64"
+            ;;
+        aarch64)
+            local compose_url="https://github.com/docker/compose/releases/download/${compose_version}/docker-compose-linux-aarch64"
+            ;;
+        *)
+            log_error "Неподдерживаемая архитектура: $arch"
+            ;;
+    esac
+
+    log_info "Загрузка Docker Compose ${compose_version} для архитектуры ${arch}..."
+    run_remote_cmd "sudo curl -L ${compose_url} -o /usr/local/bin/docker-compose"
+    run_remote_cmd "sudo chmod +x /usr/local/bin/docker-compose"
+
+    # Проверяем установку
+    if run_remote_cmd "docker-compose --version" > /dev/null 2>&1; then
+        log_success "Docker Compose успешно установлен"
+        run_remote_cmd "docker-compose --version"
+    else
+        log_error "Не удалось установить Docker Compose"
+    fi
+}
+
+check_docker_compose_cmd() {
+    log_info "Проверка команды Docker Compose на удаленном сервере..."
+
+    # Проверяем наличие docker-compose (старая версия)
+    if run_remote_cmd "command -v docker-compose &> /dev/null"; then
+        echo "docker-compose"
+        return 0
+    fi
+
+    # Проверяем наличие docker compose (новая версия plugin)
+    if run_remote_cmd "docker compose version &> /dev/null"; then
+        echo "docker compose"
+        return 0
+    fi
+
+    # Если ничего не найдено, устанавливаем
+    log_warning "Docker Compose не найден на удаленном сервере"
+    install_docker_compose
+
+    # После установки проверяем еще раз
+    if run_remote_cmd "command -v docker-compose &> /dev/null"; then
+        echo "docker-compose"
+        return 0
+    else
+        log_error "Docker Compose не установлен на удаленном сервере!"
+    fi
+}
+
 run_on_remote() {
     log_info "Запуск Docker Compose на удаленном сервере..."
 
+    # Проверяем SSH подключение
     log_info "Проверка SSH подключения к серверу..."
-    if ! ssh -i "$SSH_KEY" -o ConnectTimeout=5 "${REMOTE_USER}@${REMOTE_HOST}" "echo 'SSH подключение успешно'" 2>/dev/null; then
-        log_error "Не удалось подключиться к серверу по SSH"
+    if ! run_remote_cmd "echo 'OK'" 2>/dev/null | grep -q "OK"; then
+        log_error "Не удалось подключиться к серверу по SSH. Проверьте логин и пароль."
     fi
+    log_success "SSH подключение успешно"
 
+    # Определяем команду Docker Compose
+    local docker_compose_cmd=$(check_docker_compose_cmd)
+    log_info "Использую команду: $docker_compose_cmd"
+
+    # Создаем директорию
     log_info "Создание директории ${REMOTE_PATH} на сервере..."
-    ssh -i "$SSH_KEY" "${REMOTE_USER}@${REMOTE_HOST}" \
-        "sudo mkdir -p ${REMOTE_PATH} && sudo chown -R ${REMOTE_USER}:${REMOTE_USER} ${REMOTE_PATH}" || \
+    run_remote_cmd "sudo mkdir -p ${REMOTE_PATH} && sudo chown -R ${REMOTE_USER}:${REMOTE_USER} ${REMOTE_PATH}" || \
         log_error "Не удалось создать директорию ${REMOTE_PATH}"
+    log_success "Директория создана"
 
+    # Логин в Docker Hub
     log_info "Логин в Docker Hub на удаленном сервере..."
-    ssh -i "$SSH_KEY" "${REMOTE_USER}@${REMOTE_HOST}" \
-        "echo '$DOCKER_PASSWORD' | docker login -u '$DOCKER_REPO' --password-stdin" 2>/dev/null || \
-    log_warning "Не удалось залогиниться (возможно уже залогинены)"
+    run_remote_cmd "echo '$DOCKER_PASSWORD' | docker login -u '$DOCKER_REPO' --password-stdin" 2>/dev/null | grep -v "Login Succeeded" || true
+    log_success "Логин выполнен"
 
+    # Копируем файлы
     log_info "Копирование docker-compose.yml на сервер..."
-    scp -i "$SSH_KEY" docker-compose.yml "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_PATH}/"
+    copy_to_remote docker-compose.yml "${REMOTE_PATH}/"
+    log_success "docker-compose.yml скопирован"
 
     if [ -f ".env" ]; then
         log_info "Копирование .env на сервер..."
-        scp -i "$SSH_KEY" .env "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_PATH}/"
+        copy_to_remote .env "${REMOTE_PATH}/"
+        log_success ".env скопирован"
     else
         log_warning "Файл .env не найден, копирование пропущено"
     fi
 
+    # Останавливаем старые контейнеры
+    log_info "Остановка старых контейнеров (если есть)..."
+    run_remote_cmd "cd ${REMOTE_PATH} && ${docker_compose_cmd} down 2>/dev/null || true"
+
+    # Скачиваем образ
     log_info "Скачивание образа на удаленном сервере..."
-    ssh -i "$SSH_KEY" "${REMOTE_USER}@${REMOTE_HOST}" \
-        "docker pull ${DOCKER_REPO}/${IMAGE_NAME}:latest"
+    run_remote_cmd "docker pull ${DOCKER_REPO}/${IMAGE_NAME}:latest"
+    log_success "Образ скачан"
 
-    log_info "Запуск docker compose up -d..."
-    ssh -i "$SSH_KEY" "${REMOTE_USER}@${REMOTE_HOST}" \
-        "cd ${REMOTE_PATH} && unset DOCKER_HOST && docker compose up -d"
-
-    if [ $? -eq 0 ]; then
+    # Запускаем контейнеры
+    log_info "Запуск контейнеров..."
+    if run_remote_cmd "cd ${REMOTE_PATH} && ${docker_compose_cmd} up -d"; then
         log_success "Docker Compose успешно запущен на удаленном сервере"
     else
         log_error "Ошибка при запуске Docker Compose на удаленном сервере"
     fi
 
+    # Выход из Docker Hub
     log_info "Выход из Docker Hub на удаленном сервере..."
-    ssh -i "$SSH_KEY" "${REMOTE_USER}@${REMOTE_HOST}" "docker logout" 2>/dev/null || true
-    log_info "Выход из Docker Hub на сервере выполнен"
+    run_remote_cmd "docker logout" 2>/dev/null || true
 }
 
 check_remote_status() {
     log_info "Проверка статуса на удаленном сервере..."
 
+    local docker_compose_cmd=$(check_docker_compose_cmd 2>/dev/null)
+
     echo -e "\n${BLUE}--- СТАТУС КОНТЕЙНЕРОВ ---${NC}"
-    ssh -i "$SSH_KEY" "${REMOTE_USER}@${REMOTE_HOST}" \
-        "cd ${REMOTE_PATH} && docker compose ps"
+    run_remote_cmd "cd ${REMOTE_PATH} && ${docker_compose_cmd} ps 2>&1 | grep -v 'bash: .* command not found'"
 
     echo -e "\n${BLUE}--- ПОСЛЕДНИЕ ЛОГИ ---${NC}"
-    ssh -i "$SSH_KEY" "${REMOTE_USER}@${REMOTE_HOST}" \
-        "cd ${REMOTE_PATH} && docker compose logs --tail=10"
+    run_remote_cmd "cd ${REMOTE_PATH} && ${docker_compose_cmd} logs --tail=10 2>&1 | grep -v 'bash: .* command not found'"
 
     echo -e "\n${BLUE}--- ИНФОРМАЦИЯ О СИСТЕМЕ ---${NC}"
-    ssh -i "$SSH_KEY" "${REMOTE_USER}@${REMOTE_HOST}" \
-        "echo 'Загрузка CPU:'; uptime; echo -e '\nСвободная память:'; free -h"
+    run_remote_cmd "echo 'Загрузка CPU:' && uptime && echo -e '\nСвободная память:' && free -h 2>&1 | grep -v 'bash: .* command not found'"
+
+    echo -e "\n${GREEN}Приложение доступно: http://${REMOTE_HOST}:8080${NC}"
+    echo -e "${GREEN}Telegram бот: @five_pillars_bot${NC}"
 }
 
 main() {
